@@ -1,293 +1,281 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, onSnapshot, doc, getDoc, setDoc, serverTimestamp, setLogLevel } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, serverTimestamp } from 'firebase/firestore';
 
-// --- PASTE YOUR FIREBASE CONFIG OBJECT HERE ---
-// IMPORTANT: Paste ONLY the object from the Firebase console.
-// Do NOT paste any "import" statements here.
+// --- YOUR FIREBASE CONFIGURATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyBYVP69LzIyBubA0fc7RqoAajF_3sGSAQg",
   authDomain: "teseract-chatbot.firebaseapp.com",
   projectId: "teseract-chatbot",
-  storageBucket: "teseract-chatbot.firebasestorage.app",
+  storageBucket: "teseract-chatbot.appspot.com",
   messagingSenderId: "217356385192",
   appId: "1:217356385192:web:3c3831fbf6a6c22a153b9d",
   measurementId: "G-F8MJ0REZD3"
 };
-// ---------------------------------------------
-
+// -----------------------------------
 
 // Initialize Firebase
-let app, db, auth;
-try {
-    // Check if firebaseConfig has been filled out
-    if (!firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith("PASTE_")) {
-        console.error("Firebase config is not filled out. Please paste your config from the Firebase console into App.jsx");
-    } else {
-        app = initializeApp(firebaseConfig);
-        db = getFirestore(app);
-        auth = getAuth(app);
-        setLogLevel('debug');
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+
+const App = () => {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    // Authenticate user anonymously
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUserId(user.uid);
+      } else {
+        signInAnonymously(auth).catch(error => console.error("Anonymous sign-in failed:", error));
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    // Set initial welcome message
+    setMessages([{
+        id: 'initial',
+        text: 'Welcome to Tesseract Sports Club! How can I assist you today?',
+        sender: 'bot',
+        timestamp: new Date()
+    }]);
+
+    const messagesCollection = collection(db, 'chats', userId, 'messages');
+    const q = query(messagesCollection, orderBy('timestamp', 'asc'));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const msgs = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        timestamp: doc.data().timestamp?.toDate()
+      }));
+       
+       // Combine initial message with messages from Firebase
+       setMessages(prevMsgs => {
+         const dbMessageIds = new Set(msgs.map(m => m.id));
+         const filteredInitial = prevMsgs.filter(m => m.id === 'initial' && msgs.length === 0);
+         const combined = [...filteredInitial, ...msgs];
+         return combined;
+       });
+
+    });
+
+    return () => unsubscribe();
+  }, [userId]);
+
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const getBotResponse = async (userMessage) => {
+    const apiKey = ""; // Canvas will provide this
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+    const systemPrompt = `You are an expert, friendly, and enthusiastic concierge for Tesseract Sports Club. Your primary goal is to answer user questions accurately and concisely using ONLY the structured information provided below.
+
+**IMPORTANT RULES:**
+1.  **STICK TO THE FACTS:** Only use the information given here. If a user asks for something not covered (e.g., "Do you have a sauna?"), you MUST politely state that you don't have information on that. DO NOT invent details.
+2.  **INFER INTENT:** The user might not ask perfectly. Use fuzzy matching and keyword detection to understand their intent. For example, if they ask "how much for badminton class", you should understand they mean "Badminton Coaching" and provide the prices from the brochure section. If they ask about "kids football", you know to look under "Football Coaching".
+3.  **SYNTHESIZE ANSWERS:** Combine information from different sections when necessary. For example, a question about "football coaching timings and cost for a 10-year-old" requires you to look at "Coaching Details -> Football" for the U-13 timing and "Membership & Pricing" for the cost.
+4.  **BE CONCISE:** Get straight to the point. Use bullet points for lists (like prices or timings).
+
+---
+**[CLUB KNOWLEDGE BASE]**
+
+**1. GENERAL INFORMATION:**
+* **Size & Hours:** 30,000 sq ft facility, open 5 AM to 11 PM, 365 days a year.
+* **Holiday Policy:** Club is closed for members on festival days, but remains open for pre-booked hourly guests.
+* **Founded:** January 2024.
+* **Environment:** Ultra-luxurious, fully automated with a very green entrance.
+* **Parking & Lobby:** Parking for 50+ vehicles, fully air-conditioned lobby.
+* **Staff:** 18 staff members.
+* **Kid's Security:** Highly secure environment for kids with face ID access only.
+* **Social Proof:** Trusted by 200+ families, 1000+ members, 2000+ guest entries, 100+ corporate clients.
+* **Rating:** 4.8 stars from over 350 reviews.
+
+**2. SERVICES OFFERED:**
+* Memberships
+* Coaching Programs
+* Personal Training
+* Hourly Guest Bookings
+* Corporate Events
+* Private Parties & Get-Togethers
+
+**3. AMENITIES & FACILITIES:**
+* **Gym:** Features imported machines including Leg Press, Bench Press, Squat Rack, Dumbbells, Abductor, Shoulder Press, Treadmill, and Cycles.
+* **Badminton:** 3 Olympic standard courts with a professional Wooden + PVC surface.
+* **Football Turf:** FIFA certified turf, dimensions are 125ft long x 65ft wide.
+* **Swimming Pool:** Total size is 60ft long x 30ft wide. This includes a dedicated baby pool (10ft x 30ft). It is equipped with an expensive Pentair filter system, maintained by SCM engineers with daily water testing. Operational from March to October.
+* **Cafe:** Serves fast food and basic refreshments.
+
+**4. COACHING PROGRAMS:**
+* **Badminton Coaching:**
+    * **Schedule:** Monday to Saturday. Batches at 5-6 PM, 6-7 PM, 7-8 PM.
+    * **Rules:** No general members are allowed on courts during these hours.
+    * **Age:** Minimum age is 6 years.
+    * **Details:** 2 coaches, max 8 kids per court, daily performance videos shared in the official community. One free demo class is available.
+* **Football Coaching:**
+    * **Schedule:** Monday to Friday.
+    * **Batches by Age:** 5-6 PM (Under 9), 6-7 PM (Under 13), 7-8 PM (Under 17).
+    * **Details:** 2 AIFF certified coaches, max 20 kids per batch, professional equipment provided. Takes place on the turf.
+* **Swimming Coaching:**
+    * **Schedule:** Monday to Saturday, from March to October.
+    * **Batches (Morning):** 6-7 AM, 7-8 AM, 8-9 AM.
+    * **Batches (Evening):** 5-6 PM, 6-7 PM, 7-8 PM.
+    * **Details:** 2 coaches (one is a national-level coach), max 25 people per batch.
+    * **Requirements:** Nylon costume, swimming glasses, and a cap are compulsory.
+* **Gym Trainers:**
+    * **Availability:** 2 trainers are available to assist members. Morning: 6 AM - 10 AM. Evening: 5 PM - 10 PM. This is for general assistance, not a structured coaching program.
+
+**5. MEMBERSHIP & PRICING:**
+* **Hourly Guest Prices (Pay & Play):**
+    * Football Turf: ₹1300 per hour.
+    * Badminton: ₹160 per person, per hour.
+    * Swimming: ₹200 per person, per hour.
+    * Gym: ₹300 per person, per hour.
+* **Membership Rules:**
+    * Members can access facilities anytime during operating hours, EXCEPT during the specified coaching times for badminton and swimming.
+    * The football turf is NOT included in any general membership and must be booked hourly.
+* **Package Prices (from Brochure):**
+    * **Monthly:**
+        * Coaching: Badminton (₹3500), Football (₹3000), Swimming (₹3500), Table Tennis (₹2000).
+        * Membership: Badminton (₹2200), Gym (₹3000), Swimming (₹3000), All Access (₹5000).
+    * **Quarterly:**
+        * Coaching: Badminton (₹8400), Football (₹7500), Swimming (₹8400), Table Tennis (₹5100).
+        * Membership: Badminton (₹5999), Gym (₹7500), Swimming (₹7500), All Access (₹10500).
+    * **Half-Yearly:**
+        * Coaching: Badminton (₹15400), Football (₹13200), Swimming (₹14700), Table Tennis (₹7999).
+        * Membership: Badminton (₹10500), Gym (₹12000), Swimming (₹13499), All Access (₹15000).
+    * **Annually:**
+        * Coaching: Badminton (₹26500), Football (₹21999), Table Tennis (₹14160).
+        * Membership: Badminton (₹18899), Gym (₹18000), All Access (₹20999).
+---`;
+
+    const payload = {
+        contents: [{ parts: [{ text: userMessage }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+    };
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        return text || "I'm sorry, I couldn't process that. Could you ask in a different way?";
+    } catch (error) {
+        console.error("Error calling Gemini API:", error);
+        return "I'm having trouble connecting right now. Please try again in a moment.";
     }
-} catch (error) {
-    console.error("Error initializing Firebase. Please check your firebaseConfig object.", error);
-}
-
-const clubInfo = `
-- General Info: 30000 sq ft, operational hours 5am to 11pm, opens 365 days (festivals off for regular members but not for hourly bookings). Founded in Jan 2024.
-- Facilities: 50+ vehicle parking, AC lobby, 18 staff, secure environment for kids (face ID access), ultra-luxurious automated environment, seating for 100+ people.
-- Reputation: Trusted by 200+ families, 1000+ members, 2000+ guest entries, 100+ corporate houses. Rated 4.8 stars with over 350 reviews.
-- Services: Membership, coaching, personal training, hourly guest bookings, corporate events, and parties.
-- Amenities: Gym, 3 badminton courts (wooden + PVC), turf (125ft x 65ft), swimming pool (60ft x 30ft, including a 10ft baby pool), and a cafe.
-- Quality: FIFA certified turf, Pentair filters for the pool, Olympic standard badminton courts, imported gym machines.
-
-- Coaching Details:
-  - Badminton: 2 coaches, batches at 5-6pm, 6-7pm, 7-8pm. Min age 6. Daily videos in the official community. No members allowed during coaching. 1 free demo class. Monday to Saturday. Max 8 kids per court.
-  - Football: 2 AIFF certified coaches. Batches: 5-6pm (under 9), 6-7pm (under 13), 7-8pm (under 17). On the turf. Professional equipment. Monday to Friday. Max 20 kids per batch.
-  - Swimming: Operational March to October. Morning batches: 6-7am, 7-8am, 8-9am. Evening batches: 5-6pm, 6-7pm, 7-8pm. 2 coaches (one national level). Nylon costume, glasses, cap are compulsory. Mon to Sat. Max 25 per batch. Maintained by SCM engineers with daily testing.
-  - Gym: All standard equipment (leg press, bench press, squat rack, dumbbells, etc.). 2 trainers: one from 6am-10am, one from 5pm-10pm.
-
-- Membership Info:
-  - Members can use facilities anytime except during coaching hours for badminton and swimming. No membership for turf. Gym members can come anytime during operational hours.
-
-- Hourly Prices:
-  - Turf: ₹1300/hour
-  - Badminton: ₹160/hour per person
-  - Swimming: ₹200/hour per person
-  - Gym: ₹300/hour per person
-
-- Brochure Prices (Monthly):
-  - Badminton Coaching: ₹3,500
-  - Football Coaching: ₹3,000
-  - Swimming Coaching: ₹3,500
-  - Table Tennis Coaching: ₹2,000
-  - Badminton Membership: ₹2,200
-  - Gym Membership: ₹3,000
-  - Swimming Membership: ₹3,000
-  - All Access Membership: ₹5,000
-  - (Quarterly, Half-Yearly, and Annual plans are also available with significant discounts, please ask for specifics).
-`;
+  };
 
 
-const TesseractClubChatbot = () => {
-    const [messages, setMessages] = useState([]);
-    const [input, setInput] = useState('');
-    const [userId, setUserId] = useState(null);
-    const [isTyping, setIsTyping] = useState(false);
-    const messagesEndRef = useRef(null);
-    const [sessionId, setSessionId] = useState(null);
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!input.trim() || !userId) return;
 
-    useEffect(() => {
-        if (!auth) return;
-        const unsubscribe = onAuthStateChanged(auth, user => {
-            if (user) {
-                setUserId(user.uid);
-            } else {
-                signInAnonymously(auth).catch(error => console.error("Anonymous sign-in failed:", error));
-            }
-        });
-        return () => unsubscribe();
-    }, []);
-
-    useEffect(() => {
-        if (userId) {
-            const newSessionId = `session_${Date.now()}`;
-            setSessionId(newSessionId);
-            setMessages([{
-                text: "Welcome to Tesseract Sports Club! How can I assist you today?",
-                sender: 'bot',
-                id: 'initial_welcome'
-            }]);
-        }
-    }, [userId]);
-
-
-    useEffect(() => {
-        if (userId && sessionId && db) {
-            const q = query(collection(db, `chats/${userId}/${sessionId}`));
-            const unsubscribe = onSnapshot(q, (querySnapshot) => {
-                const fetchedMessages = [];
-                querySnapshot.forEach((doc) => {
-                    fetchedMessages.push({
-                        id: doc.id,
-                        ...doc.data()
-                    });
-                });
-                // Simple sort by timestamp, assuming it exists
-                fetchedMessages.sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
-
-                setMessages(prevMessages => {
-                    // This logic prevents duplicating initial messages on every snapshot update
-                    const existingIds = new Set(prevMessages.map(m => m.id));
-                    const newMessages = fetchedMessages.filter(m => !existingIds.has(m.id));
-                    if (newMessages.length > 0) {
-                        return [...prevMessages, ...newMessages];
-                    }
-                    return prevMessages;
-                });
-            });
-            return () => unsubscribe();
-        }
-    }, [userId, sessionId]);
-
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({
-            behavior: "smooth"
-        });
-    }, [messages, isTyping]);
-
-
-    const callGeminiAPI = async (messageHistory) => {
-        // This is a simplified mock. In a real scenario, you'd call the Gemini API.
-        // For this example, we'll use a rule-based response for demonstration.
-        const userMessage = messageHistory[messageHistory.length - 1].parts[0].text.toLowerCase();
-        let botResponse = "I'm sorry, I don't have information about that. Can you ask about our club's amenities, coaching, memberships, or prices?";
-        
-        const keywords = {
-            "hours": "The club is open from 5am to 11pm, 365 days a year.",
-            "parking": "Yes, we have a parking space for over 50 vehicles.",
-            "badminton": "We have 3 Olympic standard courts. Coaching is from 5-8pm, Mon-Sat. Membership is ₹2,200/month and hourly booking is ₹160/person.",
-            "football": "We have a FIFA certified turf (125ft x 65ft). Coaching for different age groups is from 5-8pm, Mon-Fri. Hourly booking is ₹1300.",
-            "swimming": "Our pool is 60ft x 30ft and open from March to October. We have morning and evening coaching batches. Membership is ₹3,000/month and hourly access is ₹200/person.",
-            "gym": "Our gym has all imported machines and is open 5am to 11pm. Membership is ₹3,000/month and hourly access is ₹300/person.",
-            "price": "We have monthly, quarterly, and annual plans with big savings! For example, monthly gym membership is ₹3,000. What are you interested in?",
-            "membership": "We offer memberships for Badminton, Gym, Swimming, and an All-Access pass starting from ₹5,000/month. What sport are you interested in?",
-            "coaching": "We offer professional coaching for Badminton, Football, and Swimming. Which one would you like to know more about?",
-             "contact": "You can reach us at +91-7851-895357 or TesseractSportsClub@gmail.com.",
-            "address": "While not explicitly provided, we are a major sports club in the area. You can find us on our website www.tesseractsportsclub.com or by searching for Tesseract Sports Club online.",
-            "hello": "Hi there! How can I help you with information about Tesseract Sports Club?",
-            "hi": "Hi there! How can I help you with information about Tesseract Sports Club?",
-            "hey": "Hello! What would you like to know about our club?",
-        };
-
-        for (const key in keywords) {
-            if (userMessage.includes(key)) {
-                botResponse = keywords[key];
-                break;
-            }
-        }
-        
-        return { text: botResponse };
+    const userMessage = {
+      text: input,
+      sender: 'user',
+      timestamp: serverTimestamp()
     };
 
-    const handleSend = async (e) => {
-        e.preventDefault();
-        if (!input.trim() || !userId || !sessionId) return;
+    const messagesCollection = collection(db, 'chats', userId, 'messages');
+    await addDoc(messagesCollection, userMessage);
 
-        const userMessage = {
-            text: input,
-            sender: 'user',
-            timestamp: serverTimestamp()
-        };
-        setInput('');
+    setInput('');
+    setIsTyping(true);
 
-        // Add user message to Firestore
-        try {
-            await addDoc(collection(db, `chats/${userId}/${sessionId}`), userMessage);
-        } catch (error) {
-            console.error("Error sending message:", error);
-            return; // Don't proceed if message fails to send
-        }
+    const botResponseText = await getBotResponse(input);
 
-        setIsTyping(true);
-
-        // Prepare history for API
-        const messageHistory = [...messages.slice(1), { // slice(1) to remove initial welcome
-            text: userMessage.text,
-            sender: 'user'
-        }].map(msg => ({
-            role: msg.sender === 'user' ? 'user' : 'model',
-            parts: [{
-                text: msg.text
-            }]
-        }));
-
-
-        const apiResponse = await callGeminiAPI(messageHistory);
-        setIsTyping(false);
-
-        const botMessage = {
-            text: apiResponse.text,
-            sender: 'bot',
-            timestamp: serverTimestamp()
-        };
-
-        // Add bot message to Firestore
-        try {
-            await addDoc(collection(db, `chats/${userId}/${sessionId}`), botMessage);
-        } catch (error) {
-            console.error("Error saving bot response:", error);
-        }
+    const botMessage = {
+      text: botResponseText,
+      sender: 'bot',
+      timestamp: serverTimestamp()
     };
+    await addDoc(messagesCollection, botMessage);
+
+    setIsTyping(false);
+  };
 
 
+  const Message = ({ msg }) => {
+    const isBot = msg.sender === 'bot';
     return (
-        <div className="font-sans bg-gray-900 text-white flex flex-col h-screen">
-            <header className="bg-gray-800/50 backdrop-blur-sm shadow-lg p-4 border-b border-purple-500/30">
-                <h1 className="text-2xl font-bold text-center bg-gradient-to-r from-purple-400 to-pink-500 text-transparent bg-clip-text">
-                    Tesseract Sports Club Concierge
-                </h1>
-            </header>
-
-            <main className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
-                <div className="flex flex-col space-y-4">
-                    {messages.map((msg, index) => (
-                         <div key={msg.id || index} className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            {msg.sender === 'bot' && (
-                                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center font-bold text-sm flex-shrink-0">
-                                    T
-                                </div>
-                            )}
-                            <div className={`max-w-xs md:max-w-md lg:max-w-2xl px-4 py-2.5 rounded-2xl shadow-md ${
-                                msg.sender === 'user'
-                                ? 'bg-purple-600 rounded-br-none'
-                                : 'bg-gray-700 rounded-bl-none'
-                            }`}>
-                                <p className="text-sm md:text-base whitespace-pre-wrap">{msg.text}</p>
-                            </div>
-                        </div>
-                    ))}
-                     {isTyping && (
-                        <div className="flex items-end gap-2 justify-start">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center font-bold text-sm flex-shrink-0">
-                                T
-                            </div>
-                            <div className="max-w-xs md:max-w-md lg:max-w-2xl px-4 py-2.5 rounded-2xl shadow-md bg-gray-700 rounded-bl-none">
-                                <div className="flex items-center justify-center space-x-1">
-                                    <span className="h-1.5 w-1.5 bg-white rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                                    <span className="h-1.5 w-1.5 bg-white rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                                    <span className="h-1.5 w-1.5 bg-white rounded-full animate-bounce"></span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    <div ref={messagesEndRef} />
-                </div>
-            </main>
-
-            <footer className="bg-gray-800/50 backdrop-blur-sm p-4 border-t border-purple-500/30">
-                <form onSubmit={handleSend} className="flex items-center space-x-2">
-                    <input
-                        type="text"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="Ask about memberships, timings, prices..."
-                        className="flex-1 p-3 bg-gray-700 rounded-lg border border-transparent focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-300"
-                        disabled={!userId}
-                    />
-                    <button
-                        type="submit"
-                        className="p-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition duration-300 transform hover:scale-105"
-                        disabled={!input.trim() || isTyping || !userId}
-                    >
-                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-                    </button>
-                </form>
-            </footer>
+      <div className={`flex items-start gap-3 ${isBot ? 'justify-start' : 'justify-end'}`}>
+        {isBot && (
+          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 to-pink-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+            T
+          </div>
+        )}
+        <div className={`max-w-xs md:max-w-md lg:max-w-lg px-4 py-3 rounded-2xl ${isBot ? 'bg-gray-700 text-white rounded-tl-none' : 'bg-gradient-to-tr from-purple-600 to-pink-500 text-white rounded-br-none'}`}>
+          <p className="text-sm">{msg.text}</p>
         </div>
+      </div>
     );
+  };
+
+  return (
+    <div className="h-full w-full flex flex-col bg-gray-900 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]">
+      <header className="p-4 border-b border-gray-700/50 shadow-lg bg-gray-900/50 backdrop-blur-sm">
+        <h1 className="text-xl font-bold text-center text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500">
+          Tesseract Sports Club Concierge
+        </h1>
+      </header>
+
+      <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <div className="space-y-6">
+          {messages.map((msg) => <Message key={msg.id} msg={msg} />)}
+          {isTyping && (
+            <div className="flex items-start gap-3 justify-start">
+               <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 to-pink-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">T</div>
+               <div className="bg-gray-700 text-white rounded-2xl rounded-tl-none px-4 py-3 text-sm">
+                  <div className="flex items-center justify-center gap-1.5">
+                      <span className="h-1.5 w-1.5 bg-white rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                      <span className="h-1.5 w-1.5 bg-white rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                      <span className="h-1.5 w-1.5 bg-white rounded-full animate-bounce"></span>
+                  </div>
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      </main>
+
+      <footer className="p-4 bg-gray-900/50 backdrop-blur-sm border-t border-gray-700/50">
+        <form onSubmit={handleSendMessage} className="flex items-center gap-3 max-w-2xl mx-auto">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask about memberships, timings, prices..."
+            className="flex-1 p-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+          />
+          <button type="submit" className="p-3 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-lg text-white disabled:opacity-50 hover:opacity-90 transition-opacity">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="feather feather-send"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          </button>
+        </form>
+      </footer>
+    </div>
+  );
 };
 
-export default TesseractClubChatbot;
+export default App;
 
