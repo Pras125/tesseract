@@ -3,6 +3,12 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, serverTimestamp } from 'firebase/firestore';
 
+// --- PASTE YOUR GEMINI API KEY HERE ---
+// Get your free key from Google AI Studio.
+// Follow the instructions in the `APIKeyGuide.md` file.
+const GEMINI_API_KEY = "AIzaSyDM3_-yvhESp1iUzi3FHL3DkSgq_NePWU4";
+// ------------------------------------
+
 // --- YOUR FIREBASE CONFIGURATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyBYVP69LzIyBubA0fc7RqoAajF_3sGSAQg",
@@ -20,7 +26,6 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-
 const App = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -29,7 +34,6 @@ const App = () => {
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    // Authenticate user anonymously
     onAuthStateChanged(auth, (user) => {
       if (user) {
         setUserId(user.uid);
@@ -42,14 +46,6 @@ const App = () => {
   useEffect(() => {
     if (!userId) return;
 
-    // Set initial welcome message
-    setMessages([{
-        id: 'initial',
-        text: 'Welcome to Tesseract Sports Club! How can I assist you today?',
-        sender: 'bot',
-        timestamp: new Date()
-    }]);
-
     const messagesCollection = collection(db, 'chats', userId, 'messages');
     const q = query(messagesCollection, orderBy('timestamp', 'asc'));
 
@@ -59,20 +55,21 @@ const App = () => {
         ...doc.data(),
         timestamp: doc.data().timestamp?.toDate()
       }));
-       
-       // Combine initial message with messages from Firebase
-       setMessages(prevMsgs => {
-         const dbMessageIds = new Set(msgs.map(m => m.id));
-         const filteredInitial = prevMsgs.filter(m => m.id === 'initial' && msgs.length === 0);
-         const combined = [...filteredInitial, ...msgs];
-         return combined;
-       });
-
+      
+      if (msgs.length === 0) {
+         setMessages([{
+            id: 'initial',
+            text: 'Welcome to Tesseract Sports Club! How can I assist you today?',
+            sender: 'bot',
+            timestamp: new Date()
+        }]);
+      } else {
+        setMessages(msgs);
+      }
     });
 
     return () => unsubscribe();
   }, [userId]);
-
 
   useEffect(() => {
     scrollToBottom();
@@ -83,138 +80,63 @@ const App = () => {
   };
 
   const getBotResponse = async (userMessage) => {
-    const apiKey = ""; // Canvas will provide this
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+    if (GEMINI_API_KEY === "YOUR_GEMINI_API_KEY") {
+      return "AI is not configured. Please get your free Gemini API Key and add it to the TesseractClubChatbot.jsx file.";
+    }
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
 
-    const systemPrompt = `You are an expert, friendly, and enthusiastic concierge for Tesseract Sports Club. Your primary goal is to answer user questions accurately and concisely using ONLY the structured information provided below.
+    const systemPrompt = `You are a helpful and friendly concierge for the Tesseract Sports Club. Your primary function is to answer user questions based *only* on the real-time information found on the official website: tesseractsportsclub.com.
 
-**IMPORTANT RULES:**
-1.  **STICK TO THE FACTS:** Only use the information given here. If a user asks for something not covered (e.g., "Do you have a sauna?"), you MUST politely state that you don't have information on that. DO NOT invent details.
-2.  **INFER INTENT:** The user might not ask perfectly. Use fuzzy matching and keyword detection to understand their intent. For example, if they ask "how much for badminton class", you should understand they mean "Badminton Coaching" and provide the prices from the brochure section. If they ask about "kids football", you know to look under "Football Coaching".
-3.  **SYNTHESIZE ANSWERS:** Combine information from different sections when necessary. For example, a question about "football coaching timings and cost for a 10-year-old" requires you to look at "Coaching Details -> Football" for the U-13 timing and "Membership & Pricing" for the cost.
-4.  **BE CONCISE:** Get straight to the point. Use bullet points for lists (like prices or timings).
-
----
-**[CLUB KNOWLEDGE BASE]**
-
-**1. GENERAL INFORMATION:**
-* **Size & Hours:** 30,000 sq ft facility, open 5 AM to 11 PM, 365 days a year.
-* **Holiday Policy:** Club is closed for members on festival days, but remains open for pre-booked hourly guests.
-* **Founded:** January 2024.
-* **Environment:** Ultra-luxurious, fully automated with a very green entrance.
-* **Parking & Lobby:** Parking for 50+ vehicles, fully air-conditioned lobby.
-* **Staff:** 18 staff members.
-* **Kid's Security:** Highly secure environment for kids with face ID access only.
-* **Social Proof:** Trusted by 200+ families, 1000+ members, 2000+ guest entries, 100+ corporate clients.
-* **Rating:** 4.8 stars from over 350 reviews.
-
-**2. SERVICES OFFERED:**
-* Memberships
-* Coaching Programs
-* Personal Training
-* Hourly Guest Bookings
-* Corporate Events
-* Private Parties & Get-Togethers
-
-**3. AMENITIES & FACILITIES:**
-* **Gym:** Features imported machines including Leg Press, Bench Press, Squat Rack, Dumbbells, Abductor, Shoulder Press, Treadmill, and Cycles.
-* **Badminton:** 3 Olympic standard courts with a professional Wooden + PVC surface.
-* **Football Turf:** FIFA certified turf, dimensions are 125ft long x 65ft wide.
-* **Swimming Pool:** Total size is 60ft long x 30ft wide. This includes a dedicated baby pool (10ft x 30ft). It is equipped with an expensive Pentair filter system, maintained by SCM engineers with daily water testing. Operational from March to October.
-* **Cafe:** Serves fast food and basic refreshments.
-
-**4. COACHING PROGRAMS:**
-* **Badminton Coaching:**
-    * **Schedule:** Monday to Saturday. Batches at 5-6 PM, 6-7 PM, 7-8 PM.
-    * **Rules:** No general members are allowed on courts during these hours.
-    * **Age:** Minimum age is 6 years.
-    * **Details:** 2 coaches, max 8 kids per court, daily performance videos shared in the official community. One free demo class is available.
-* **Football Coaching:**
-    * **Schedule:** Monday to Friday.
-    * **Batches by Age:** 5-6 PM (Under 9), 6-7 PM (Under 13), 7-8 PM (Under 17).
-    * **Details:** 2 AIFF certified coaches, max 20 kids per batch, professional equipment provided. Takes place on the turf.
-* **Swimming Coaching:**
-    * **Schedule:** Monday to Saturday, from March to October.
-    * **Batches (Morning):** 6-7 AM, 7-8 AM, 8-9 AM.
-    * **Batches (Evening):** 5-6 PM, 6-7 PM, 7-8 PM.
-    * **Details:** 2 coaches (one is a national-level coach), max 25 people per batch.
-    * **Requirements:** Nylon costume, swimming glasses, and a cap are compulsory.
-* **Gym Trainers:**
-    * **Availability:** 2 trainers are available to assist members. Morning: 6 AM - 10 AM. Evening: 5 PM - 10 PM. This is for general assistance, not a structured coaching program.
-
-**5. MEMBERSHIP & PRICING:**
-* **Hourly Guest Prices (Pay & Play):**
-    * Football Turf: ₹1300 per hour.
-    * Badminton: ₹160 per person, per hour.
-    * Swimming: ₹200 per person, per hour.
-    * Gym: ₹300 per person, per hour.
-* **Membership Rules:**
-    * Members can access facilities anytime during operating hours, EXCEPT during the specified coaching times for badminton and swimming.
-    * The football turf is NOT included in any general membership and must be booked hourly.
-* **Package Prices (from Brochure):**
-    * **Monthly:**
-        * Coaching: Badminton (₹3500), Football (₹3000), Swimming (₹3500), Table Tennis (₹2000).
-        * Membership: Badminton (₹2200), Gym (₹3000), Swimming (₹3000), All Access (₹5000).
-    * **Quarterly:**
-        * Coaching: Badminton (₹8400), Football (₹7500), Swimming (₹8400), Table Tennis (₹5100).
-        * Membership: Badminton (₹5999), Gym (₹7500), Swimming (₹7500), All Access (₹10500).
-    * **Half-Yearly:**
-        * Coaching: Badminton (₹15400), Football (₹13200), Swimming (₹14700), Table Tennis (₹7999).
-        * Membership: Badminton (₹10500), Gym (₹12000), Swimming (₹13499), All Access (₹15000).
-    * **Annually:**
-        * Coaching: Badminton (₹26500), Football (₹21999), Table Tennis (₹14160).
-        * Membership: Badminton (₹18899), Gym (₹18000), All Access (₹20999).
----`;
+**CRITICAL INSTRUCTIONS:**
+1.  **USE THE WEBSITE:** Your answers MUST be derived from the content of tesseractsportsclub.com.
+2.  **BE ACCURATE:** Provide the most current and accurate information available on the site regarding amenities, pricing, schedules, and contact details.
+3.  **DO NOT HALLUCINATE:** If the website does not contain the answer to a user's question, you must state, "I'm sorry, but I couldn't find that specific information on the tesseractsportsclub.com website. For more details, you can contact them directly." Do NOT invent information or use outdated knowledge.
+4.  **BE CONCISE AND FRIENDLY:** Keep your answers clear, to the point, and maintain a welcoming tone.`;
 
     const payload = {
-        contents: [{ parts: [{ text: userMessage }] }],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ parts: [{ text: userMessage }] }],
+      tools: [{ "google_search": {} }],
+      systemInstruction: { parts: [{ text: systemPrompt }] },
     };
 
     try {
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const result = await response.json();
-        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-        return text || "I'm sorry, I couldn't process that. Could you ask in a different way?";
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+          const errorBody = await response.json();
+          console.error("API Error Response:", errorBody);
+          return `I'm sorry, there was an error with the connection. (Status: ${response.status})`;
+      }
+      const result = await response.json();
+      const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      return text || "I'm sorry, I couldn't process that. Could you ask in a different way?";
     } catch (error) {
-        console.error("Error calling Gemini API:", error);
-        return "I'm having trouble connecting right now. Please try again in a moment.";
+      console.error("Error calling Gemini API:", error);
+      return "I'm having trouble connecting to the AI service right now. Please check your API key and try again in a moment.";
     }
   };
-
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim() || !userId) return;
 
-    const userMessage = {
-      text: input,
-      sender: 'user',
-      timestamp: serverTimestamp()
-    };
-
+    const userMessage = { text: input, sender: 'user', timestamp: serverTimestamp() };
     const messagesCollection = collection(db, 'chats', userId, 'messages');
     await addDoc(messagesCollection, userMessage);
-
+    const currentInput = input;
     setInput('');
+    
     setIsTyping(true);
 
-    const botResponseText = await getBotResponse(input);
-
-    const botMessage = {
-      text: botResponseText,
-      sender: 'bot',
-      timestamp: serverTimestamp()
-    };
+    const botResponseText = await getBotResponse(currentInput);
+    const botMessage = { text: botResponseText, sender: 'bot', timestamp: serverTimestamp() };
     await addDoc(messagesCollection, botMessage);
-
+    
     setIsTyping(false);
   };
-
 
   const Message = ({ msg }) => {
     const isBot = msg.sender === 'bot';
@@ -226,7 +148,7 @@ const App = () => {
           </div>
         )}
         <div className={`max-w-xs md:max-w-md lg:max-w-lg px-4 py-3 rounded-2xl ${isBot ? 'bg-gray-700 text-white rounded-tl-none' : 'bg-gradient-to-tr from-purple-600 to-pink-500 text-white rounded-br-none'}`}>
-          <p className="text-sm">{msg.text}</p>
+          <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
         </div>
       </div>
     );
