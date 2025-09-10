@@ -12,18 +12,23 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-      /* Ensure the app takes up the full screen height */
-      html, body, #root {
+      /* This is the critical part that fixes the layout */
+      html,
+      body,
+      #root {
         height: 100%;
+        width: 100%;
         margin: 0;
         padding: 0;
-        overflow: hidden; /* Prevents potential unwanted scrollbars */
+        background-color: #030712; /* Matches the app's dark theme */
       }
+
       body {
         font-family: 'Inter', sans-serif;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
+
       /* Custom scrollbar for a more polished look */
       ::-webkit-scrollbar {
         width: 8px;
@@ -40,9 +45,8 @@
       }
     </style>
   </head>
-  <body class="bg-gray-900">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
-
