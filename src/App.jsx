@@ -26,7 +26,7 @@ const App = () => {
   };
 
   const getBotResponse = async (userMessage) => {
-    if (!GEMINI_API_KEY || GEMINI_API_KEY === "PASTE_YOUR_GEMINI_API_KEY_HERE") {
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === "AIzaSyD2AiVgn1HUJR7mb7BwXJGEy3UDHvgAuyU") {
       return "AI is not configured. Please add your Gemini API Key.";
     }
 
